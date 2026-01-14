@@ -1,7 +1,7 @@
 // ==========================
 // IMPORT MODULES
 // ==========================
-import makeWASocket, { useMultiFileAuthState } from "@whiskeysockets/baileys";
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from "@whiskeysockets/baileys";
 import qrcode from "qrcode-terminal";
 import fs from "fs";
 import csv from "csv-parser";
@@ -10,7 +10,7 @@ import express from "express";
 // ==========================
 // 1. LOAD DATA CSV
 // ==========================
-const CSV_FILE = "./attached_assets/stok_1768363015007.csv";
+const CSV_FILE = "./attached_assets/stok_1768363015007.csv"; // sesuaikan lokasi file
 const stockData = [];
 
 if (fs.existsSync(CSV_FILE)) {
@@ -58,12 +58,7 @@ function findBestMatch(data, userInput) {
 // ==========================
 // 3. START BOT
 // ==========================
-let isRunning = false;
-
 async function startBot() {
-  if (isRunning) return; // prevent double run
-  isRunning = true;
-
   const { state, saveCreds } = await useMultiFileAuthState("auth");
 
   const sock = makeWASocket({
@@ -74,14 +69,15 @@ async function startBot() {
   sock.ev.on("creds.update", saveCreds);
 
   // ==========================
-  // QR HANDLER
+  // QR HANDLER & CONNECTION LOG
   // ==========================
   sock.ev.on("connection.update", (update) => {
+    console.log("🔄 Connection update:", update);
     const { connection, qr, lastDisconnect } = update;
 
     if (qr) {
       qrcode.generate(qr, { small: true });
-      console.log("📱 Scan QR WhatsApp");
+      console.log("📱 Scan QR WhatsApp sekarang");
     }
 
     if (connection === "open") {
@@ -89,17 +85,9 @@ async function startBot() {
     }
 
     if (connection === "close") {
-      console.log("❌ Koneksi terputus");
-      if (lastDisconnect?.error?.output?.statusCode !== 401) {
-        console.log("⏱ Tunggu 15 detik sebelum mencoba reconnect...");
-        setTimeout(() => {
-          isRunning = false;
-          startBot();
-        }, 15000);
-      } else {
-        console.log("⚠️ Session invalid, perlu scan QR lagi");
-        isRunning = false;
-      }
+      const reason = lastDisconnect?.error?.output?.statusCode || "unknown";
+      console.log(`❌ Koneksi terputus (code ${reason}), mencoba reconnect dalam 15 detik...`);
+      setTimeout(startBot, 15000); // reconnect
     }
   });
 
@@ -127,7 +115,8 @@ async function startBot() {
     let replyText = "";
     if (results.length === 0) {
       replyText = `❌ Barang "${keyword}" tidak ditemukan.`;
-    } else if (results.length === 1) {
+    } 
+    else if (results.length === 1) {
       const item = results[0];
       replyText =
         `📦 *${item.nama_barang}*\n` +
@@ -135,7 +124,8 @@ async function startBot() {
         `📊 Stok: *${item.stok} ${item.satuan}*\n` +
         `📍 Lokasi: ${item.lokasi}\n` +
         `⏱ Last update: ${item.last_update}`;
-    } else {
+    } 
+    else {
       replyText =
         `🔎 Ditemukan ${results.length} barang untuk "${keyword}":\n` +
         results.map((r, i) =>
@@ -148,14 +138,13 @@ async function startBot() {
   });
 }
 
-// start bot pertama kali
 startBot();
 
 // ==========================
 // 4. EXPRESS SERVER UNTUK KEEP-ALIVE
 // ==========================
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 app.get("/", (req, res) => {
   res.send("StokBot aktif! 🚀");
